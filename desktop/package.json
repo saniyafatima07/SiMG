@@ -2,25 +2,27 @@
     "name": "dicom-guardian",
     "version": "1.0.0",
     "description": "DICOM Guardian Desktop Application",
-    "main": "dist-ts/main.js",
+    "main": "dist-ts/electron/main.js",
     "scripts": {
-        "build:cpp": "echo 'Building C++ binaries...'",
-        "build": "tsc",
-        "start": "ELECTRON_DISABLE_SANDBOX=1 electron ."
+        "build:ts": "tsc",
+        "build:react": "webpack --config webpack.config.js",
+        "build": "npm run build:ts && npm run build:react",
+        "build:cpp": "bash scripts/build_cpp.sh",
+        "start": "ELECTRON_DISABLE_SANDBOX=1 npm run build && electron dist-ts/main.js",
+        "dev": "ELECTRON_DISABLE_SANDBOX=1 NODE_ENV=development electron dist-ts/main.js",
+        "dist": "electron-builder --linux"
     },
     "dependencies": {
-        "@types/react-dom": "^18.2.0",
         "react": "^18.2.0",
         "react-dom": "^18.2.0"
     },
     "devDependencies": {
         "@types/node": "^20.0.0",
         "@types/react": "^18.2.0",
-        "css-loader": "^7.1.4",
+        "@types/react-dom": "^18.2.0",
         "electron": "^28.0.0",
         "electron-builder": "^24.0.0",
         "html-webpack-plugin": "^5.6.6",
-        "style-loader": "^4.0.0",
         "ts-loader": "^9.5.4",
         "ts-node": "^10.0.0",
         "typescript": "^5.0.0",
@@ -29,10 +31,32 @@
     },
     "build": {
         "appId": "com.dicomguardian.app",
+        "productName": "DICOM Guardian",
+        "directories": {
+            "output": "dist"
+        },
+        "extraFiles": [
+            {
+                "from": "cpp/anchor/build/anchor",
+                "to": "cpp/anchor/build/anchor"
+            },
+            {
+                "from": "cpp/verifier/build/verifier",
+                "to": "cpp/verifier/build/verifier"
+            },
+            {
+                "from": "sandbox1/run.sh",
+                "to": "sandbox1/run.sh"
+            },
+            {
+                "from": "keys/public.pem",
+                "to": "keys/public.pem"
+            }
+        ],
         "linux": {
             "target": [
-                "deb",
-                "AppImage"
+                "AppImage",
+                "deb"
             ]
         }
     }
