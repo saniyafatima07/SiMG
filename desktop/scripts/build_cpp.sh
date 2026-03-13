@@ -1,49 +1,31 @@
 #!/bin/sh
-# scripts/build_cpp.sh — Build all C++ binaries for DICOM Guardian.
-# Run from the Desktop root directory: bash scripts/build_cpp.sh
+# scripts/build_cpp.sh — Build anchor and verifier binaries for DICOM Guardian.
+# Run from anywhere; paths are resolved relative to this script's location.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DESKTOP_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$DESKTOP_ROOT/.." && pwd)"
 
-# Check for required build tools
 if ! command -v cmake > /dev/null 2>&1; then
-    echo "✗ cmake not found. Install with: sudo apt install cmake" >&2
-    exit 1
+    echo "✗ cmake not found. Install with: sudo apt install cmake" >&2; exit 1
 fi
 if ! command -v make > /dev/null 2>&1; then
-    echo "✗ make not found. Install with: sudo apt install build-essential" >&2
-    exit 1
+    echo "✗ make not found. Install with: sudo apt install build-essential" >&2; exit 1
 fi
 
 JOBS="$(nproc 2>/dev/null || echo 4)"
-echo "=== Building C++ binaries for DICOM Guardian (using $JOBS jobs) ==="
+echo "=== Building C++ binaries ($JOBS jobs) ==="
 
-# ── Anchor (fingerprint generator) ──────────────────────────────────────────
-echo ""
 echo "── Building anchor..."
-mkdir -p "$DESKTOP_ROOT/cpp/anchor/build"
-cd "$DESKTOP_ROOT/cpp/anchor/build" || exit 1
-cmake .. -DCMAKE_BUILD_TYPE=Release
-if make -j"$JOBS"; then
-    echo "✓ anchor built successfully: $DESKTOP_ROOT/cpp/anchor/build/anchor"
-else
-    echo "✗ anchor build FAILED" >&2
-    exit 1
-fi
+mkdir -p "$REPO_ROOT/fingerprint/anchor/build"
+cd "$REPO_ROOT/fingerprint/anchor/build" || exit 1
+cmake .. -DCMAKE_BUILD_TYPE=Release && make -j"$JOBS" || { echo "✗ anchor FAILED" >&2; exit 1; }
+echo "✓ anchor built: $REPO_ROOT/fingerprint/anchor/build/anchor"
 
-# ── Verifier ─────────────────────────────────────────────────────────────────
-cd "$DESKTOP_ROOT" || exit 1
-echo ""
 echo "── Building verifier..."
-mkdir -p "$DESKTOP_ROOT/cpp/verifier/build"
-cd "$DESKTOP_ROOT/cpp/verifier/build" || exit 1
-cmake .. -DCMAKE_BUILD_TYPE=Release
-if make -j"$JOBS"; then
-    echo "✓ verifier built successfully: $DESKTOP_ROOT/cpp/verifier/build/verifier"
-else
-    echo "✗ verifier build FAILED" >&2
-    exit 1
-fi
+mkdir -p "$REPO_ROOT/fingerprint/verifier/build"
+cd "$REPO_ROOT/fingerprint/verifier/build" || exit 1
+cmake .. -DCMAKE_BUILD_TYPE=Release && make -j"$JOBS" || { echo "✗ verifier FAILED" >&2; exit 1; }
+echo "✓ verifier built: $REPO_ROOT/fingerprint/verifier/build/verifier"
 
-echo ""
-echo "=== All C++ binaries built successfully ==="
+echo "=== All binaries built ==="

@@ -2,7 +2,7 @@ const path = require('path');
 
 module.exports = {
     mode: process.env.NODE_ENV === 'production' ? 'production' : 'development',
-    entry: './renderer/App.tsx',
+    entry: './renderer/index.tsx',
     target: 'electron-renderer',
     devtool: 'source-map',
     module: {
@@ -19,6 +19,6 @@ module.exports = {
     },
     output: {
         filename: 'bundle.js',
-        path: path.resolve(__dirname, 'dist-ts', 'renderer'),
+        path: path.resolve(__dirname, 'renderer'),
     },
 };

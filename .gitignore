@@ -47,3 +47,4 @@ venv.bak/
 *.swp
 *.swo
 .DS_Store
+keys/private.pem

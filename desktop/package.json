@@ -8,8 +8,8 @@
         "build:react": "webpack --config webpack.config.js",
         "build": "npm run build:ts && npm run build:react",
         "build:cpp": "bash scripts/build_cpp.sh",
-        "start": "ELECTRON_DISABLE_SANDBOX=1 npm run build && electron dist-ts/main.js",
-        "dev": "ELECTRON_DISABLE_SANDBOX=1 NODE_ENV=development electron dist-ts/main.js",
+        "start": "npm run build && ELECTRON_DISABLE_SANDBOX=1 electron dist-ts/main.js",
+        "dev": "ELECTRON_DISABLE_SANDBOX=1 electron dist-ts/main.js",
         "dist": "electron-builder --linux"
     },
     "dependencies": {
