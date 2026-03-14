@@ -5,9 +5,13 @@
 #include <cmath>
 #include <algorithm>
 
+#include <jpeglib.h>
+#include <cstdio>
+
 // ─────────────────────────────────────────────
 //  DICOM tag constants (group, element)
 // ─────────────────────────────────────────────
+static constexpr uint32_t TAG_TRANSFER_SYNTAX    = 0x00020010;
 static constexpr uint32_t TAG_ROWS              = 0x00280010;
 static constexpr uint32_t TAG_COLS              = 0x00280011;
 static constexpr uint32_t TAG_BITS_ALLOC        = 0x00280100;
@@ -20,6 +24,21 @@ static constexpr uint32_t TAG_WINDOW_WIDTH      = 0x00281051;
 static constexpr uint32_t TAG_VOI_LUT_SEQ       = 0x00285020; // (0028,5020) — rarely used alias
 static constexpr uint32_t TAG_VOI_LUT_SEQ2      = 0x00280106; // (0028,0106) smallest pixel
 static constexpr uint32_t TAG_PIXEL_DATA        = 0x7FE00010;
+
+// Sequence delimiters
+static constexpr uint32_t TAG_ITEM              = 0xFFFEE000;
+static constexpr uint32_t TAG_ITEM_DELIM        = 0xFFFEE00D;
+static constexpr uint32_t TAG_SEQ_DELIM         = 0xFFFEE0DD;
+
+// Known JPEG transfer syntax UIDs
+static bool is_jpeg_transfer_syntax(const std::string& ts) {
+    // JPEG Baseline  : 1.2.840.10008.1.2.4.50
+    // JPEG Extended   : 1.2.840.10008.1.2.4.51
+    // JPEG Lossless   : 1.2.840.10008.1.2.4.57
+    // JPEG Lossless FP: 1.2.840.10008.1.2.4.70
+    // JPEG 2000       : 1.2.840.10008.1.2.4.90 / .91
+    return (ts.find("1.2.840.10008.1.2.4.") == 0);
+}
 
 // ─────────────────────────────────────────────
 //  Little-endian read helpers
@@ -36,16 +55,110 @@ static int16_t read_i16(const uint8_t* p) {
 
 // Parse a DS (decimal string) VR value — may contain backslash-separated multiple values
 static double parse_ds(const std::string& s) {
-    // Take first value only (multiple values separated by '\')
+    // Take first value only (multiple values separated by '\\')
     size_t pos = s.find('\\');
     std::string first = (pos != std::string::npos) ? s.substr(0, pos) : s;
     try { return std::stod(first); }
     catch (...) { return 0.0; }
 }
 
+// Trim trailing whitespace/nulls from a DICOM string
+static std::string trim_dicom_string(const uint8_t* data, uint32_t len) {
+    std::string s(reinterpret_cast<const char*>(data), len);
+    while (!s.empty() && (s.back() == ' ' || s.back() == '\0'))
+        s.pop_back();
+    return s;
+}
+
+// ─────────────────────────────────────────────
+//  JPEG decompression via libjpeg
+//  Input: raw JPEG bytes
+//  Output: grayscale uint8 pixel values
+// ─────────────────────────────────────────────
+static std::vector<uint8_t> decompress_jpeg(const uint8_t* jpeg_data, size_t jpeg_size,
+                                             int& out_width, int& out_height)
+{
+    struct jpeg_decompress_struct cinfo;
+    struct jpeg_error_mgr jerr;
+
+    cinfo.err = jpeg_std_error(&jerr);
+    jpeg_create_decompress(&cinfo);
+
+    jpeg_mem_src(&cinfo, jpeg_data, jpeg_size);
+
+    if (jpeg_read_header(&cinfo, TRUE) != JPEG_HEADER_OK) {
+        jpeg_destroy_decompress(&cinfo);
+        throw std::runtime_error("JPEG decompression: invalid JPEG header in DICOM pixel data");
+    }
+
+    // Force grayscale output
+    cinfo.out_color_space = JCS_GRAYSCALE;
+    jpeg_start_decompress(&cinfo);
+
+    out_width  = (int)cinfo.output_width;
+    out_height = (int)cinfo.output_height;
+    int row_stride = cinfo.output_width * cinfo.output_components;
+
+    std::vector<uint8_t> pixels(out_width * out_height);
+
+    while (cinfo.output_scanline < cinfo.output_height) {
+        uint8_t* row_ptr = pixels.data() + cinfo.output_scanline * out_width;
+        jpeg_read_scanlines(&cinfo, &row_ptr, 1);
+    }
+
+    jpeg_finish_decompress(&cinfo);
+    jpeg_destroy_decompress(&cinfo);
+
+    return pixels;
+}
+
+// ─────────────────────────────────────────────
+//  Extract JPEG frame from encapsulated pixel data
+//  DICOM encapsulated format:
+//    Item tag (FFFE,E000) + 4-byte length → offset table (usually empty/zero)
+//    Item tag (FFFE,E000) + 4-byte length → JPEG frame bytes
+//    ...
+//    Sequence Delimiter (FFFE,E0DD)
+// ─────────────────────────────────────────────
+static std::vector<uint8_t> extract_first_jpeg_frame(const uint8_t* buf, size_t buf_size,
+                                                      size_t start_offset)
+{
+    size_t off = start_offset;
+
+    // 1. Read the offset table item (we skip it)
+    if (off + 8 > buf_size) throw std::runtime_error("Encapsulated pixel data: truncated offset table");
+    uint32_t item_tag = ((uint32_t)read_u16(buf + off) << 16) | read_u16(buf + off + 2);
+    uint32_t item_len = read_u32(buf + off + 4);
+    off += 8;
+
+    if (item_tag != TAG_ITEM)
+        throw std::runtime_error("Encapsulated pixel data: expected Item tag for offset table");
+
+    // Skip offset table contents
+    off += item_len;
+
+    // 2. Read the first actual JPEG frame item
+    if (off + 8 > buf_size) throw std::runtime_error("Encapsulated pixel data: no JPEG frame found");
+    item_tag = ((uint32_t)read_u16(buf + off) << 16) | read_u16(buf + off + 2);
+    item_len = read_u32(buf + off + 4);
+    off += 8;
+
+    if (item_tag == TAG_SEQ_DELIM)
+        throw std::runtime_error("Encapsulated pixel data: sequence delimiter before any frame");
+
+    if (item_tag != TAG_ITEM)
+        throw std::runtime_error("Encapsulated pixel data: expected Item tag for JPEG frame");
+
+    if (off + item_len > buf_size)
+        throw std::runtime_error("Encapsulated pixel data: JPEG frame extends past EOF");
+
+    return std::vector<uint8_t>(buf + off, buf + off + item_len);
+}
+
 // ─────────────────────────────────────────────
 //  DICOM parser — explicit little-endian transfer syntax
 //  Handles both implicit and explicit VR.
+//  Now also handles JPEG-compressed encapsulated pixel data.
 // ─────────────────────────────────────────────
 DicomTags parse_dicom(const std::string& path)
 {
@@ -73,6 +186,7 @@ DicomTags parse_dicom(const std::string& path)
 
     DicomTags tags;
     bool explicit_vr = true;  // assume explicit; will detect from first tag
+    bool is_jpeg = false;     // set after parsing transfer syntax
 
     auto peek_explicit = [&]() -> bool {
         if (offset + 6 > fsize) return false;
@@ -127,10 +241,48 @@ DicomTags parse_dicom(const std::string& path)
             offset += 4;
         }
 
-        // Undefined length (0xFFFFFFFF) — skip sequences for now
+        // Undefined length (0xFFFFFFFF) — could be encapsulated pixel data
         if (vlen == 0xFFFFFFFF) {
-            // Skip to next tag heuristically — not full seq parsing
-            // For our purposes we only need scalar tags; SQ skipping is sufficient
+            if (tag == TAG_PIXEL_DATA && is_jpeg) {
+                // ── Encapsulated JPEG pixel data ──
+                std::vector<uint8_t> jpeg_frame = extract_first_jpeg_frame(
+                    buf.data(), fsize, offset);
+
+                int jpeg_w = 0, jpeg_h = 0;
+                tags.raw_bytes = decompress_jpeg(jpeg_frame.data(), jpeg_frame.size(),
+                                                  jpeg_w, jpeg_h);
+                tags.compressed = true;
+
+                // Update dims from JPEG if not already set
+                if (tags.rows == 0) tags.rows = jpeg_h;
+                if (tags.cols == 0) tags.cols = jpeg_w;
+
+                // Override to 8-bit since JPEG baseline produces 8-bit output
+                tags.bits_allocated = 8;
+                tags.bits_stored = 8;
+                tags.pixel_representation = 0;  // unsigned
+
+                // Skip past the encapsulated sequence to find the delimiter
+                while (offset + 8 <= fsize) {
+                    uint32_t itag = ((uint32_t)read_u16(buf.data() + offset) << 16) |
+                                     read_u16(buf.data() + offset + 2);
+                    uint32_t ilen = read_u32(buf.data() + offset + 4);
+                    offset += 8;
+                    if (itag == TAG_SEQ_DELIM) break;
+                    if (ilen != 0xFFFFFFFF) offset += ilen;
+                }
+                continue;
+            }
+
+            // Other undefined-length tags (sequences) — skip items until delimiter
+            while (offset + 8 <= fsize) {
+                uint32_t itag = ((uint32_t)read_u16(buf.data() + offset) << 16) |
+                                 read_u16(buf.data() + offset + 2);
+                uint32_t ilen = read_u32(buf.data() + offset + 4);
+                offset += 8;
+                if (itag == TAG_SEQ_DELIM) break;
+                if (ilen != 0xFFFFFFFF) offset += ilen;
+            }
             continue;
         }
 
@@ -139,6 +291,11 @@ DicomTags parse_dicom(const std::string& path)
 
         // ── Extract tags we care about ──────────
         switch (tag) {
+            case TAG_TRANSFER_SYNTAX: {
+                tags.transfer_syntax = trim_dicom_string(vdata, vlen);
+                is_jpeg = is_jpeg_transfer_syntax(tags.transfer_syntax);
+                break;
+            }
             case TAG_ROWS:
                 tags.rows = read_u16(vdata);
                 break;
@@ -175,7 +332,9 @@ DicomTags parse_dicom(const std::string& path)
                 break;
             }
             case TAG_PIXEL_DATA:
-                tags.raw_bytes.assign(vdata, vdata + vlen);
+                if (!tags.compressed) {
+                    tags.raw_bytes.assign(vdata, vdata + vlen);
+                }
                 break;
             default:
                 break;
@@ -204,6 +363,9 @@ DicomTags parse_dicom(const std::string& path)
 //    3. cast to uint8
 //
 //  If no windowing tags → use full range min-max normalisation
+//
+//  For JPEG-decompressed data, pixels are already 8-bit grayscale,
+//  so windowing typically acts as a passthrough (slope=1, intercept=0).
 // ─────────────────────────────────────────────
 std::vector<uint8_t> apply_dicom_windowing(const DicomTags& tags)
 {

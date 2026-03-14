@@ -23,7 +23,11 @@ struct DicomTags {
     int pixel_representation = 0;  // 0 = unsigned, 1 = signed
     bool has_voi_lut_sequence = false;  // if true, skip windowing
 
-    std::vector<uint8_t>  raw_bytes;  // raw pixel bytes from file
+    // Transfer syntax & compression
+    std::string transfer_syntax;          // UID string from (0002,0010)
+    bool compressed = false;              // true if pixel data was JPEG-decompressed
+
+    std::vector<uint8_t>  raw_bytes;  // raw pixel bytes from file (or decompressed)
 };
 
 // Parse DICOM file and extract tags + raw pixel data.

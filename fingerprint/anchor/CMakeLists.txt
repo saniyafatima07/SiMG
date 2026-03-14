@@ -8,6 +8,7 @@ endif()
 
 # ── Dependencies ─────────────────────────────
 find_package(OpenSSL REQUIRED)
+find_package(JPEG REQUIRED)
 
 # nlohmann/json — single header, fetched into <binary_dir>/nlohmann/json.hpp
 include(FetchContent)
@@ -34,6 +35,7 @@ target_include_directories(anchor PRIVATE
 target_link_libraries(anchor PRIVATE
     OpenSSL::SSL
     OpenSSL::Crypto
+    JPEG::JPEG
 )
 target_compile_options(anchor PRIVATE -O2 -Wall -Wextra)
 
