@@ -16,12 +16,14 @@ fi
 DICOM_PATH="$1"
 MODE="$2"
 
+CONVERTER_PYTHON="$(dirname "$0")/../converter/.venv/bin/python3"
+
 if [[ "$MODE" == "0" ]]; then
     echo "[STEP 2] Using clean converter" >&2
-    python3 "$CLEAN_CONVERTER" "$DICOM_PATH" "$TMP_PNG" >&2
+    "$CONVERTER_PYTHON" "$CLEAN_CONVERTER" "$DICOM_PATH" "$TMP_PNG" >&2
 elif [[ "$MODE" == "1" ]]; then
     echo "[STEP 2] Using evil converter (linf attack)" >&2
-    python3 "$EVIL_CONVERTER" "$DICOM_PATH" "$TMP_PNG" >&2
+    "$CONVERTER_PYTHON" "$EVIL_CONVERTER" "$DICOM_PATH" "$TMP_PNG" >&2
 else
     echo "[STEP 2] ERROR: mode must be 0 or 1" >&2
     exit 1
