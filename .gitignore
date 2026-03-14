@@ -1,4 +1,5 @@
 keys/private.pem
+keys/private.pem.bak
 .tmpfs/
 node_modules/
 build/
