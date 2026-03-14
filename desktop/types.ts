@@ -6,6 +6,7 @@ export interface VerdictPayload {
     hist_score?: number;
     diagnosis_name?: string;
     diagnosis_confidence?: number;
+    generated_image_path?: string;
     reason?: string;
 }
 

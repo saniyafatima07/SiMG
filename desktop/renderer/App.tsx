@@ -8,6 +8,8 @@ export default function App() {
     const [verdict, setVerdict] = useState<VerdictPayload | null>(null);
     const [appState, setAppState] = useState<'welcome' | 'upload' | 'dashboard'>('welcome');
     const [useEvilConverter, setUseEvilConverter] = useState(false);
+    const [runToken, setRunToken] = useState(0);
+    const [isImageZoomed, setIsImageZoomed] = useState(false);
 
     // Stages: 0: Init, 1: Fingerprint/Convert, 2: Verify, 3: Infer, 4: Done
     const [currentStage, setCurrentStage] = useState<number>(0);
@@ -70,6 +72,7 @@ export default function App() {
         setVerdict(null);
         setCurrentStage(0);
         stageRef.current = 0;
+        setRunToken(prev => prev + 1);
         setIsRunning(true);
         setAppState('dashboard');
         window.guardian.startPipeline((file as ElectronFile).path, useEvilConverter).catch((error) => {
@@ -78,6 +81,11 @@ export default function App() {
             setIsRunning(false);
         });
     };
+
+    const generatedImageSrc = verdict?.generated_image_path
+        ? `file://${verdict.generated_image_path}?v=${runToken}`
+        : null;
+    const generatedImageName = verdict?.generated_image_path?.split('/').pop() || 'generated-image.png';
 
     // Theming constants
     const colors = {
@@ -131,8 +139,8 @@ export default function App() {
         const barColor = score >= 0.85 ? colors.pass : colors.fail;
 
         return (
-            <div style={{ marginBottom: '10px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '4px' }}>
+            <div style={{ marginBottom: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '6px' }}>
                     <span>{label}</span>
                     <span style={{ opacity: isDefined ? 1 : 0.4 }}>{isDefined ? score.toFixed(3) : 'N/A'}</span>
                 </div>
@@ -247,6 +255,17 @@ export default function App() {
             </button>
         </div>
     );
+
+    const handleDownloadGeneratedImage = () => {
+        if (!generatedImageSrc) return;
+
+        const link = document.createElement('a');
+        link.href = generatedImageSrc;
+        link.download = generatedImageName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
 
     if (appState === 'welcome') {
         return (
@@ -483,7 +502,7 @@ export default function App() {
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 1fr) 2fr', gap: '24px' }}>
 
                 {/* Left Column (Drop zone & Stages) */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', height: '100%' }}>
 
                     {/* File Drop Zone */}
                     <div
@@ -571,98 +590,6 @@ export default function App() {
                             {renderStage(4, "Pipeline Complete")}
                         </div>
                     </div>
-                </div>
-
-                {/* Right Column (Verdict & Logs) */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-
-                    {/* Verdict Panel (Only visible after run, or conditionally showing empty state) */}
-                    <div style={{
-                        backgroundColor: verdict ?
-                            (verdict.type === 'PASS' ? 'rgba(255,255,255,0.06)' :
-                                verdict.type === 'SECURITY_FAILURE' ? 'rgba(255,255,255,0.03)' :
-                                    'rgba(255,255,255,0.04)')
-                            : colors.panelBg,
-                        border: `1px solid ${verdict ?
-                            (verdict.type === 'PASS' ? colors.pass :
-                                verdict.type === 'SECURITY_FAILURE' ? colors.fail :
-                                    colors.warn)
-                            : colors.border}`,
-                        borderRadius: '8px',
-                        padding: '24px',
-                        minHeight: '180px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        justifyContent: 'center'
-                    }}>
-                        {!verdict && !isRunning && (
-                            <div style={{ textAlign: 'center', opacity: 0.4 }}>
-                                Awaiting pipeline execution...
-                            </div>
-                        )}
-
-                        {isRunning && !verdict && (
-                            <div style={{ textAlign: 'center', color: colors.primary }}>
-                                <div style={{ display: 'inline-block', animation: 'spin 2s linear infinite' }}>RUN</div>
-                                <div style={{ marginTop: '12px', fontWeight: 'bold', letterSpacing: '1px' }}>ANALYZING DICOM INTEGRITY...</div>
-                            </div>
-                        )}
-
-                        {verdict && (
-                            <div>
-                                <h2 style={{
-                                    margin: '0 0 16px 0',
-                                    color: verdict.type === 'PASS' ? colors.pass : verdict.type === 'SECURITY_FAILURE' ? colors.fail : colors.warn,
-                                    display: 'flex', alignItems: 'center', gap: '12px',
-                                    animation: 'none'
-                                }}>
-                                    {verdict.type === 'PASS' && 'INTEGRITY VERIFIED'}
-                                    {verdict.type === 'SECURITY_FAILURE' && '!! COMPROMISED CONVERTER DETECTED !!'}
-                                    {verdict.type === 'PIPELINE_ERROR' && 'PIPELINE ERROR'}
-                                </h2>
-
-                                {verdict.type === 'PASS' && (
-                                    <div style={{ marginBottom: '24px' }}>
-                                        <div style={{ fontSize: '1.2rem', marginBottom: '12px', fontWeight: 'bold' }}>
-                                            Overall Score: {verdict.score?.toFixed(3)}
-                                        </div>
-                                        {verdict.diagnosis_name && (
-                                            <div style={{ display: 'grid', gap: '6px' }}>
-                                                <div>
-                                                    <span style={{ opacity: 0.65 }}>Diagnosis: </span>
-                                                    <span style={{ fontWeight: 'bold' }}>{verdict.diagnosis_name}</span>
-                                                </div>
-                                                {typeof verdict.diagnosis_confidence === 'number' && (
-                                                    <div>
-                                                        <span style={{ opacity: 0.65 }}>Confidence: </span>
-                                                        <span style={{ fontWeight: 'bold' }}>{verdict.diagnosis_confidence.toFixed(2)}%</span>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-
-                                {verdict.reason && (
-                                    <div style={{
-                                        backgroundColor: '#F3F4F6', padding: '12px',
-                                        borderRadius: '4px', fontFamily: 'monospace', color: colors.text,
-                                        marginBottom: '16px', borderLeft: `4px solid ${colors.warn}`
-                                    }}>
-                                        {verdict.reason}
-                                    </div>
-                                )}
-
-                                {(verdict.type === 'PASS' || verdict.type === 'SECURITY_FAILURE') && (
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '12px' }}>
-                                        <ScoreBar label="pHash Cryptographic Score" scoreStr={verdict.phash_score} />
-                                        <ScoreBar label="Ring Artifact Analysis" scoreStr={verdict.ring_score} />
-                                        <ScoreBar label="Histogram Frequency Match" scoreStr={verdict.hist_score} />
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                    </div>
 
                     {/* Live Log Panel */}
                     <div style={{
@@ -696,7 +623,219 @@ export default function App() {
                         </div>
                     </div>
                 </div>
+
+                {/* Right Column (Verdict) */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+
+                    {/* Verdict Panel (Only visible after run, or conditionally showing empty state) */}
+                    <div style={{
+                        backgroundColor: verdict ?
+                            (verdict.type === 'PASS' ? 'rgba(255,255,255,0.06)' :
+                                verdict.type === 'SECURITY_FAILURE' ? 'rgba(255,255,255,0.03)' :
+                                    'rgba(255,255,255,0.04)')
+                            : colors.panelBg,
+                        border: `1px solid ${verdict ?
+                            (verdict.type === 'PASS' ? colors.pass :
+                                verdict.type === 'SECURITY_FAILURE' ? colors.fail :
+                                    colors.warn)
+                            : colors.border}`,
+                        borderRadius: '8px',
+                        padding: '24px',
+                        minHeight: '360px',
+                        flex: 1,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'center'
+                    }}>
+                        {!verdict && !isRunning && (
+                            <div style={{ textAlign: 'center', opacity: 0.4 }}>
+                                Awaiting pipeline execution...
+                            </div>
+                        )}
+
+                        {isRunning && !verdict && (
+                            <div style={{ textAlign: 'center', color: colors.primary }}>
+                                <div style={{ display: 'inline-block', animation: 'spin 2s linear infinite' }}>RUN</div>
+                                <div style={{ marginTop: '12px', fontWeight: 'bold', letterSpacing: '1px' }}>ANALYZING DICOM INTEGRITY...</div>
+                            </div>
+                        )}
+
+                        {verdict && (
+                            <div style={{ display: 'grid', gap: '20px' }}>
+                                <h2 style={{
+                                    margin: 0,
+                                    color: verdict.type === 'PASS' ? colors.pass : verdict.type === 'SECURITY_FAILURE' ? colors.fail : colors.warn,
+                                    display: 'flex', alignItems: 'center', justifyContent: verdict.type === 'SECURITY_FAILURE' ? 'center' : 'flex-start', gap: '12px',
+                                    animation: 'none'
+                                }}>
+                                    {verdict.type === 'PASS' && 'INTEGRITY VERIFIED'}
+                                    {verdict.type === 'SECURITY_FAILURE' && '!! COMPROMISED CONVERTER DETECTED !!'}
+                                    {verdict.type === 'PIPELINE_ERROR' && 'PIPELINE ERROR'}
+                                </h2>
+
+                                {verdict.type === 'PASS' && (
+                                    <div>
+                                        <div style={{ fontSize: '1.2rem', marginBottom: '14px', fontWeight: 'bold' }}>
+                                            Overall Score: {verdict.score?.toFixed(3)}
+                                        </div>
+                                        {verdict.diagnosis_name && (
+                                            <div style={{ display: 'grid', gap: '10px' }}>
+                                                <div>
+                                                    <span style={{ opacity: 0.65 }}>Diagnosis: </span>
+                                                    <span style={{ fontWeight: 'bold' }}>{verdict.diagnosis_name}</span>
+                                                </div>
+                                                {typeof verdict.diagnosis_confidence === 'number' && (
+                                                    <div>
+                                                        <span style={{ opacity: 0.65 }}>Confidence: </span>
+                                                        <span style={{ fontWeight: 'bold' }}>{verdict.diagnosis_confidence.toFixed(2)}%</span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {verdict.reason && (
+                                    <div style={{
+                                        backgroundColor: '#F3F4F6', padding: '12px',
+                                        borderRadius: '4px', fontFamily: 'monospace', color: colors.text,
+                                        borderLeft: `4px solid ${colors.warn}`
+                                    }}>
+                                        {verdict.reason}
+                                    </div>
+                                )}
+
+                                {generatedImageSrc && (
+                                    <div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+                                            <div style={{ fontSize: '0.85rem', opacity: 0.65, fontWeight: 'bold' }}>
+                                                Generated Image
+                                            </div>
+                                            <div style={{ display: 'flex', gap: '8px' }}>
+                                                <button
+                                                    onClick={() => setIsImageZoomed(true)}
+                                                    style={{
+                                                        border: `1px solid ${colors.border}`,
+                                                        backgroundColor: colors.panelBg,
+                                                        color: colors.text,
+                                                        borderRadius: '6px',
+                                                        padding: '6px 10px',
+                                                        cursor: 'pointer',
+                                                        fontWeight: 'bold'
+                                                    }}
+                                                >
+                                                    Zoom
+                                                </button>
+                                                <button
+                                                    onClick={handleDownloadGeneratedImage}
+                                                    style={{
+                                                        border: `1px solid ${colors.border}`,
+                                                        backgroundColor: colors.panelBg,
+                                                        color: colors.text,
+                                                        borderRadius: '6px',
+                                                        padding: '6px 10px',
+                                                        cursor: 'pointer',
+                                                        fontWeight: 'bold'
+                                                    }}
+                                                >
+                                                    Download
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div style={{
+                                            border: `1px solid ${colors.border}`,
+                                            borderRadius: '8px',
+                                            padding: '12px',
+                                            backgroundColor: colors.panelBg
+                                        }}>
+                                            <img
+                                                src={generatedImageSrc}
+                                                alt="Generated pipeline output"
+                                                onClick={() => setIsImageZoomed(true)}
+                                                style={{
+                                                    display: 'block',
+                                                    width: '100%',
+                                                    maxHeight: '280px',
+                                                    objectFit: 'contain',
+                                                    borderRadius: '4px',
+                                                    cursor: 'zoom-in'
+                                                }}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+
+                                {(verdict.type === 'PASS' || verdict.type === 'SECURITY_FAILURE') && (
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '12px' }}>
+                                        <ScoreBar label="pHash Cryptographic Score" scoreStr={verdict.phash_score} />
+                                        <ScoreBar label="Ring Artifact Analysis" scoreStr={verdict.ring_score} />
+                                        <ScoreBar label="Histogram Frequency Match" scoreStr={verdict.hist_score} />
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+
+                </div>
             </div>
+
+            {isImageZoomed && generatedImageSrc && (
+                <div
+                    onClick={() => setIsImageZoomed(false)}
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        backgroundColor: 'rgba(0, 0, 0, 0.82)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: '32px',
+                        zIndex: 1000
+                    }}
+                >
+                    <div
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                            position: 'relative',
+                            width: 'min(92vw, 1100px)',
+                            maxHeight: '90vh',
+                            backgroundColor: colors.panelBg,
+                            borderRadius: '12px',
+                            padding: '16px',
+                            border: `1px solid ${colors.border}`
+                        }}
+                    >
+                        <button
+                            onClick={() => setIsImageZoomed(false)}
+                            style={{
+                                position: 'absolute',
+                                top: '12px',
+                                right: '12px',
+                                border: `1px solid ${colors.border}`,
+                                backgroundColor: colors.panelBg,
+                                color: colors.text,
+                                borderRadius: '6px',
+                                padding: '6px 10px',
+                                cursor: 'pointer',
+                                fontWeight: 'bold'
+                            }}
+                        >
+                            Close
+                        </button>
+                        <img
+                            src={generatedImageSrc}
+                            alt="Generated pipeline output enlarged"
+                            style={{
+                                display: 'block',
+                                width: '100%',
+                                maxHeight: 'calc(90vh - 32px)',
+                                objectFit: 'contain',
+                                borderRadius: '8px'
+                            }}
+                        />
+                    </div>
+                </div>
+            )}
 
             {/* Inline styles for basic animations */}
             <style>{`

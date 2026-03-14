@@ -21,9 +21,8 @@ class ModelInferenceOperator:
         image_path = op_input
         api_key = (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
         if not api_key:
-            raise ValueError("Gemini API key not found. Set GEMINI_API_KEY or GOOGLE_API_KEY in inference-pipeline/.env.")
-
-        print("[MONAI]    InferenceOperator: API key loaded", file=sys.stderr)
+            print("[MONAI] PIPELINE ERROR: Inference unavailable.", file=sys.stderr)
+            raise RuntimeError("Inference unavailable.")
             
         # For the sake of the mock, check if the image has adversarial noise by comparing it 
         # to a median filtered version of itself (rough noise estimator).
@@ -77,7 +76,8 @@ class ModelInferenceOperator:
             
             result_text = (response.text or "").strip()
             if not result_text:
-                raise ValueError("Gemini returned an empty response.")
+                print("[MONAI] PIPELINE ERROR: Inference returned no result.", file=sys.stderr)
+                raise RuntimeError("Inference returned no result.")
             confidence = round(random.uniform(96.8438, 99.6647367), 2)
             
             print("[MONAI]    InferenceOperator: inference complete", file=sys.stderr)
@@ -96,13 +96,11 @@ class ModelInferenceOperator:
             return output_json
 
         except genai_errors.ClientError as e:
-            message = str(e)
-            if "API_KEY_INVALID" in message or "API Key not found" in message:
-                print("[MONAI] PIPELINE ERROR: Gemini API key is invalid. Update GEMINI_API_KEY in inference-pipeline/.env.", file=sys.stderr)
-                raise ValueError("Gemini API key is invalid. Update GEMINI_API_KEY in inference-pipeline/.env.") from e
-
-            print(f"[MONAI] PIPELINE ERROR: {e.__class__.__name__}: {str(e)}", file=sys.stderr)
-            raise e
+            print("[MONAI] PIPELINE ERROR: Inference request failed.", file=sys.stderr)
+            raise RuntimeError("Inference request failed.") from e
         except Exception as e:
-            print(f"[MONAI] PIPELINE ERROR: {e.__class__.__name__}: {str(e)}", file=sys.stderr)
-            raise e
+            if isinstance(e, RuntimeError) and str(e) in {"Inference unavailable.", "Inference returned no result.", "Inference request failed."}:
+                raise e
+
+            print("[MONAI] PIPELINE ERROR: Inference failed.", file=sys.stderr)
+            raise RuntimeError("Inference failed.") from e

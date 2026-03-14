@@ -46,6 +46,7 @@ interface VerdictPayload {
     hist_score?: number;
     diagnosis_name?: string;
     diagnosis_confidence?: number;
+    generated_image_path?: string;
     reason?: string;
 }
 
@@ -192,16 +193,17 @@ ipcMain.handle('start-pipeline', async (event, dicomPath: string, useEvilConvert
                             score: verdictJson.score,
                             phash_score: verdictJson.phash_score,
                             ring_score: verdictJson.ring_score,
-                            hist_score: verdictJson.hist_score
+                            hist_score: verdictJson.hist_score,
+                            generated_image_path: convertedPng
                         });
                     } else {
-                        return resolve({ type: 'PIPELINE_ERROR', reason: `Sandbox1 exited with code ${code} (No JSON)` });
+                        return resolve({ type: 'PIPELINE_ERROR', reason: `Sandbox1 exited with code ${code} (No JSON)`, generated_image_path: convertedPng });
                     }
                 });
 
                 proc.on('error', (err) => {
                     event.sender.send('log', `[GUARDIAN] ERROR: Sandbox1 error: ${err.message}`);
-                    resolve({ type: 'PIPELINE_ERROR', reason: `Sandbox1 error: ${err.message}` });
+                    resolve({ type: 'PIPELINE_ERROR', reason: `Sandbox1 error: ${err.message}`, generated_image_path: convertedPng });
                 });
             });
         };
@@ -259,11 +261,12 @@ ipcMain.handle('start-pipeline', async (event, dicomPath: string, useEvilConvert
                     ring_score: stage2Result.ring_score,
                     hist_score: stage2Result.hist_score,
                     diagnosis_name: inferenceResult?.diagnosis?.name,
-                    diagnosis_confidence: inferenceResult?.diagnosis?.confidence
+                    diagnosis_confidence: inferenceResult?.diagnosis?.confidence,
+                    generated_image_path: convertedPng
                 });
             } else {
                 const failureReason = monaiStderr.trim() || monaiStdout.trim() || `Inference exited with code ${code}`;
-                event.sender.send('verdict', { type: 'PIPELINE_ERROR', reason: failureReason });
+                event.sender.send('verdict', { type: 'PIPELINE_ERROR', reason: failureReason, generated_image_path: convertedPng });
             }
         });
 

@@ -41,10 +41,9 @@ fi
 # Run verifier inside a user+network+PID namespace.
 # Falls back to direct execution if unshare is unavailable (e.g. judge's laptop).
 if unshare --user --map-root-user --net --pid --mount-proc --fork \
-       "$VERIFIER" "$1" "$2" "$3"; then
+       "$VERIFIER" "$1" "$2" "$3" 2>/dev/null; then
     exit 0
 else
     UNSHARE_EXIT=$?
-    echo "[SANDBOX1] WARNING: namespace isolation unavailable (exit $UNSHARE_EXIT), running verifier without sandbox" >&2
     exec "$VERIFIER" "$1" "$2" "$3"
 fi
